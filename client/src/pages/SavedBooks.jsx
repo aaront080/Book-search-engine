@@ -7,40 +7,24 @@ import {
   Col
 } from 'react-bootstrap';
 
-import { getMe, deleteBook } from '../utils/API';
+import { useQuery, useMutation } from '@apollo/react-hooks';
+import { GET_ME } from '../utils/queries';
+import { REMOVE_BOOK } from '../utils/mutations';
 import Auth from '../utils/auth';
 import { removeBookId } from '../utils/localStorage';
 
 const SavedBooks = () => {
-  const [userData, setUserData] = useState({});
+  const { loading, data } = useQuery(GET_ME);
+  const [deleteBook] = useMutation(REMOVE_BOOK);
+  const userData = data?.me || {};
+  if(!userData?.username) {
+    return (
+      <h4>
+        Please login to see this page. You can sign in above.
+      </h4>
+    );
+  }
 
-  // use this to determine if `useEffect()` hook needs to run again
-  const userDataLength = Object.keys(userData).length;
-
-  useEffect(() => {
-    const getUserData = async () => {
-      try {
-        const token = Auth.loggedIn() ? Auth.getToken() : null;
-
-        if (!token) {
-          return false;
-        }
-
-        const response = await getMe(token);
-
-        if (!response.ok) {
-          throw new Error('something went wrong!');
-        }
-
-        const user = await response.json();
-        setUserData(user);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    getUserData();
-  }, [userDataLength]);
 
   // create function that accepts the book's mongo _id value as param and deletes the book from the database
   const handleDeleteBook = async (bookId) => {
@@ -51,23 +35,23 @@ const SavedBooks = () => {
     }
 
     try {
-      const response = await deleteBook(bookId, token);
-
-      if (!response.ok) {
-        throw new Error('something went wrong!');
-      }
-
-      const updatedUser = await response.json();
-      setUserData(updatedUser);
-      // upon success, remove book's id from localStorage
+      await deleteBook({
+        vaiables:{bookId: bookId},
+        update: cache => {
+          const data = cache.readQuery({ query: GET_ME });
+          const userDataCache = data.me;
+          const savedBooksCache = userDataCache.savedBooks;
+          const updatedBookCache = savedBooksCache.filter((book) => book.bookId !== bookId);
+          data.me.savedBooks = updatedBookCache;
+          cache.writeQuery({ query: GET_ME , data: {data: {...data.me.savedBooks}}})
+        }
+      });
       removeBookId(bookId);
     } catch (err) {
       console.error(err);
     }
   };
-
-  // if data isn't here yet, say so
-  if (!userDataLength) {
+  if(loading) {
     return <h2>LOADING...</h2>;
   }
 
